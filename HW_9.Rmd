@@ -233,8 +233,11 @@ Additionally, the mean for the thick solder box plot is `r round(mean(thick_sold
 
 ### **Part B** :
 Build a regression model with skips as the outcome and with the following terms as predictors:
+
 • a main effect for Opening
+
 • a main effect for Solder type
+
 • an interaction between Opening and Solder type
 
 Make a table that shows the estimate and 95% large-sample confidence interval for each coefficient in your
