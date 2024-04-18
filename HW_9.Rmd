@@ -1,0 +1,299 @@
+---
+title: "Homework 9"
+author: "Annika Godines"
+date: "2024-04-18"
+output: 
+  html_document:
+    toc: yes
+    toc_float: yes
+---
+
+```{r global_options, echo=FALSE, warning = FALSE}
+# Set Parameter
+knitr::opts_chunk$set(fig.height=5, fig.width=7, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80))
+```
+
+```{r echo = FALSE, include = FALSE}
+#Load Library
+library(ggplot2)
+library(moderndive)
+library(kableExtra)
+```
+
+# GitHub
+To obtain the code for this, click [here!](https://github.com/algodines/HW_9_SDS.git)
+
+
+# **Problem 1** : Get Out The Vote
+
+### **Part A** :
+How much more likely are GOVT call recipients to have voted in 1998? 
+
+As a preliminary analysis, calculate the following quantities (The portion of those receiving a GOTV call who voted in 1998, the sample proportion of those not receiving a GOTV call recipients to have voted in 1998, and a large-sample 95% confidence interval for the difference in these two proportions: that is, the proportions of voting in 1998 (voted1998==1) for those who received a GOTV call versus those who didn’t.).
+
+```{r echo = FALSE}
+#Load In Data Set
+turnout <- read.csv("turnout.csv")
+
+#Calculate Proportions of Voted & No Vote,
+voted_gotv <- mean(turnout$GOTV_call == 1 & turnout$voted1998 == 1)
+no_vote_gotv <- mean(turnout$GOTV == 0 & turnout$voted1998 == 1)
+
+#Sample Size Calculator
+n_gotv <- sum(turnout$GOTV_call == 1)
+n_no_gotv <- sum(turnout$GOTV_call == 0)
+
+#Standard Error Calculator
+se_gotv <- sqrt(voted_gotv * (1 - voted_gotv) / n_gotv)
+se_no_gotv <- sqrt(no_vote_gotv * (1 - no_vote_gotv) / n_no_gotv)
+
+#Confidence Interval For Difference in Proportion
+difference_prop <- voted_gotv - no_vote_gotv
+margin_of_error <- 1.96 * sqrt(se_gotv^2 + se_no_gotv^2)
+
+#Confidence Interval Calculator
+conf_int <- c(difference_prop - margin_of_error, difference_prop + margin_of_error)
+
+```
+
+The proportion of GOVT call recipients who voted in 1998 was `r round (voted_gotv, 4)`, the proportion of non-GOTV call recipients who voted in 1998 was `r round(no_vote_gotv, 4)` and the 95% Confidence Interval for the difference in proportion is `r round(conf_int, 4)`.
+
+
+### **Part B** :
+Provide evidence that at all three of these variables are confounders that prevent the difference you observed in Part A from representing the true causal effect of the GOTV call on the likelihood that a person voted in 1998. 
+
+```{r echo = FALSE}
+
+#Data For BarPlots
+bar_voted1996 <- as.data.frame(table(turnout$voted1996, turnout$GOTV_call))
+bar_majorpty <- as.data.frame(table(turnout$MAJORPTY, turnout$GOTV_call))
+
+#Rename columns
+names(bar_voted1996) <- c("Voted1996", "GOTV_call", "Count")
+names(bar_majorpty) <- c("MAJORPTY", "GOTV_call", "Count")
+```
+
+```{r echo = FALSE}
+#Plot Bar Plots
+
+# Plot for Voters in 1996
+ggplot(bar_voted1996, aes(x = Voted1996, y = Count, fill = factor(GOTV_call))) + geom_bar(stat = "identity", position = "dodge", color = "black")  +
+  labs(title = "Voted in 1996",
+       x = "Voted in 1996",
+       y = "Count",
+       fill = "GOTV Call") +
+  scale_fill_discrete(name = "GOTV Call", labels = c("No", "Yes"))
+```
+
+```{r echo = FALSE}
+#Plot Age
+ggplot(turnout, aes(x = AGE, fill = factor(GOTV_call))) +
+  geom_density(alpha = 0.8) +
+  labs(title = "Distribution of Age",
+      x = "Age", 
+      y = "Density",
+      fill = "GOTV Call") +
+  scale_fill_discrete(name = "GOTV Call", labels = c("No", "Yes"))
+```
+
+```{r echo = FALSE}
+#Plot Majority
+ggplot(turnout, aes(x = factor(MAJORPTY), fill = factor(GOTV_call))) +
+  geom_bar(position = "dodge", color = "black") +
+  labs(title = "Major Party Affiliation",
+       x = "Major Party Affiliation",
+       y = "Count",
+       fill = "GOTV Call") +
+  scale_fill_discrete(name = "GOTV Call", labels = c("No", "Yes"))
+  
+```
+
+
+
+```{r echo = FALSE}
+# Check Association Between Confounders & Outcome
+summary(glm(GOTV_call ~ voted1996 + AGE + MAJORPTY, data = turnout, family = binomial))
+
+```
+
+This output suggest that voted 1996 and Age are significant predictors of receiving a GOTV call, while major party is not. The p-values in Voted1996 and Age are highly significant, indicating they are important predictors; in contrast, Major party does not hold statistical significance.
+
+
+```{r echo = FALSE}
+# Check Association Between Confounders & Outcome
+summary(glm(voted1998 ~ voted1996 + AGE + MAJORPTY, data = turnout, family = binomial))
+```
+
+As shown by the positive coefficient, individuals who voted in 1996 are more likely to vote in the 1998 election. Similarly, the positive integer in age and major political party suggest individuals who are older or a member of a major political party are more likely to vote in the 1998 election.
+
+The model's goodness of fit is accessed using the AIC value, with lower values indicating a better fit, in which case the AIC value of 12608 indicated the model provides a reasonable fit to the data. 
+
+### **Part C** :
+Use matching to construct a data set with GOTV_call as our treatment variable, and with voted1996, AGE, and MAJORPTY as our “matching” or “balancing” variables. Use 5 control cases for each treated case in your matching (ratio=5).
+
+```{r echo = FALSE}
+# Calculate Propensity Scores
+logit_model <- glm(GOTV_call ~ voted1996 + AGE + MAJORPTY, data = turnout, family = binomial)
+propensity_scores <- predict(logit_model, type = "response")
+
+# Combine Propensity scores Original Data
+turnout_with_scores <- cbind(turnout, propensity_scores)
+
+# Sort Data by Propensity
+turnout_sorted <- turnout_with_scores[order(propensity_scores), ]
+
+# Initialize vectors
+treated_indices <- numeric()
+control_indices <- numeric()
+
+#Perform Nearest Neighbor Matching
+for (i in 1:nrow(turnout_sorted)) {
+  if (turnout_sorted[i, "GOTV_call"] == 1) {  
+    treated_indices <- c(treated_indices, i)
+    nearest_control_index <- which.min(abs(i - control_indices))
+    control_indices <- c(control_indices, nearest_control_index)
+  } else {  
+    control_indices <- c(control_indices, i)
+  }
+}
+
+# Create Matched
+matched_data <- turnout_sorted[c(treated_indices, control_indices), ]
+
+# Assess balance
+summary(matched_data)
+
+# Analyze Effect of GOTV Call On Voting1998
+proportion_gotv <- mean(matched_data$GOTV_call == 1 & matched_data$voted1998 == 1)
+proportion_no_gotv <- mean(matched_data$GOTV_call == 0 & matched_data$voted1998 == 1)
+
+# Sample Sizes
+n_gotv <- sum(matched_data$GOTV_call == 1)
+n_no_gotv <- sum(matched_data$GOTV_call == 0)
+
+# Standard Errors
+se_gotv <- sqrt(proportion_gotv * (1 - proportion_gotv) / n_gotv)
+se_no_gotv <- sqrt(proportion_no_gotv * (1 - proportion_no_gotv) / n_no_gotv)
+
+# Confidence Interval
+diff_proportions_matched <- proportion_gotv - proportion_no_gotv
+margin_of_error_matched <- 1.96 * sqrt(se_gotv^2 + se_no_gotv^2)
+conf_interval_matched <- c(diff_proportions_matched - margin_of_error_matched, diff_proportions_matched + margin_of_error_matched)
+
+```
+  
+The analysis reveals the proportion of GOTV call recipients who voted in 1998 was approximately `r round(proportion_gotv * 100, 2)`%, the proportion of non-GOTV call recipients who voted in 1998 were approximately `r round(proportion_no_gotv * 100, 2)`%, and the 95% Confidence Interval for the difference in proportions is `r round(conf_interval_matched * 100, 2)` as percents respectively. 
+
+These results indicate a substantial difference in voting behavior between GOTV call recipients and non-recipients. GOTV call recipients had a significantly lower proportion of individuals who voted in 1998 compared to non-recipients. The confidence interval for the difference in proportion doesn't include zero, therefor indicating statistical significant.
+
+Because of this, it can be concluded the effect of the GOTV call on the likelihood of voting in the 1998 election had a negative effect on voter turnout. However, it's important to note there might be potential confounding variables and should call for further analysisi to establish causation conclusively. 
+
+# **Problem 2** : Manufacturing flaws in circut boards
+
+### **Part A** :
+Make two plots. The first plot should provide evidence that the size of the opening on the solder gun is related to the number of skips. The second should provide evidence that the thickness of the alloy used for soldering is related to the number of skips. Give each plot an informative caption describing what is shown in the plot.
+
+```{r echo = FALSE}
+# Load In Data
+solder <- read.csv("solder.csv")
+
+#Opening Size vs. Skips Plot
+ggplot(solder, aes(x = Opening, y = skips)) +
+  geom_boxplot() +
+  labs(title = "Relationship Between Opening Size on Solder Gun and Number of Skips",
+       x = "Opening Size",
+       y = "Number of Skips") +
+  scale_x_discrete(labels = c('Small', 'Medium', 'Large'))
+
+small <- solder$skips[solder$Opening == "S"]
+medium <- solder$skips[solder$Opening == "M"]
+large <- solder$skips[solder$Opening == "L"]
+
+summary(small)
+
+```
+
+The mean for the small, medium, and large box plots are `r round(mean(small),2)`, `r round(mean(medium),2)`, and `r round(mean(large),2)` respectively. Additionally, the median for the small, medium, and large box plots are `r round(median(small),2)`, `r round(median(medium),2)`, and `r round(median(large),2)` respectively.
+
+```{r echo = FALSE}
+#Solder Thickness vs. Skips Plot
+ggplot(solder, aes(x = Solder, y = skips)) +
+  geom_boxplot() +
+  labs(title = "Relationship Between Solder Thickness and Number of Skips",
+       x = "Solder Thickness",
+       y = "Number of Skips")
+
+# Subset Data For Thin & Thick
+thin_solder <- solder$skips[solder$Solder == "Thin"]
+thick_solder <- solder$skips[solder$Solder == "Thick"]
+
+```
+The mean for the thin solder box plots is `r round(mean(thin_solder),2)` and it has a median of `r round(median(thin_solder),2)`.
+Additionally, the mean for the thick solder box plot is `r round(mean(thick_solder),2)` and it has a median of `r round(median(thick_solder),2)`.
+
+### **Part B** :
+Build a regression model with skips as the outcome and with the following terms as predictors:
+• a main effect for Opening
+• a main effect for Solder type
+• an interaction between Opening and Solder type
+
+Make a table that shows the estimate and 95% large-sample confidence interval for each coefficient in your
+model
+
+```{r echo = FALSE}
+
+# Build Regression Model
+model <- lm(skips ~ Opening * Solder, data = solder)
+
+# Get Coefficients & Confidence Intervals
+coefficients <- coef(model)
+conf_intervals <- confint(model)
+
+# Create Data Frame 
+regression_table <- data.frame(
+  Predictor = c("Intercept", "OpeningMedium", "OpeningLarge", "SolderThin", "OpeningMedium:SolderThin", "OpeningLarge:SolderThin"),
+  Estimate = coefficients,
+  CI_Lower = conf_intervals[, 1],
+  CI_Upper = conf_intervals[, 2]
+)
+
+# Print Table
+regression_table %>%
+  kbl(caption = "Regression Coefficients and 95% Confidence Intervals") %>%
+  kable_classic() %>%
+  kable_styling(bootstrap_options = "hover")
+
+```
+
+### **Part C** :
+Interpret each estimated coefficient in your model in no more than 1-2 sentences. 
+
+• Intercept:
+  The estimated baseline number of skips when the opening size is small and the solder thickness is thick is approximately 0.39. However, because this value isn't significantly different from zero, this should be interperted with caution.
+
+• Opening M
+  The estimated increase in number of skips when the opening size is medium as compared to when it is small, holding the solder thickness constant, is approximately 2.41. This coefficient has statistical significance, as the 95% confidence interval doesn't contain zeros.
+
+• Opening S
+  The estimated increase in number of skips when the opening size is large compared to when it is small, holding solder thickness constant, is approximately 5.13. This coefficient is statistically significant because the confidence interval doesn't include zero.
+  
+• Solder Thin
+  The estimated increase in number of skips when solder thickness is thin compared to when it is thick, holding the opening size is constant, is approximately 2.28. This means it is statistically significant, as the 95% confidence interval doesn't include zeros.
+  
+• Opening M : Solder Thin
+  The estimated interaction effect between medium opening size and thin solder thickness is approximately 0.74; this suggests when both the opening size is medium and the solder thickness is thin, there is a decline in the number of skips by approximately 0.74 compared to what would be expected from summing individual effects of opening size and solder thickness. However, this coefficient isn't statistically significant, as the 95% confidence interval includes zero.
+
+• Opening S: Solder Thin
+  The estimated interaction effect between large opening size and thin solder thickness is approximately 9.65: this suggest when both the opening size is large and the solder thickness is this, there in an increase in number of skips by approximately 9.65 compared to what would be expected from summing individual effects of opening size and solder thickness. This coefficient is statistically significant, as the 95% confidence interval doesn't include zero.
+  
+### **Part D** :
+
+Based on the analysis, the combination of opening size and solder thickness that would ultimately be suggested to AT&T to minimize the number of skips in the maufacturing process would be to use **large** opening size and **thin** solder thickness.
+
+This is due to the coefficient for opening size indicating that as the opening size increases from small to medium and medium to large, the number of skips also increases. This suggest the larger the opening size, the higher the number of skips. However, the coefficient for the interaction term between opening size and solder thickness reveals the increase in the number of skips associated with large opening size is more pronounced when soldering is thick. Therefore, despite the data showing an increase in skips when the opening size is larger, the interaction effect suggests that the negative impact of a large opening size on the number of skips can be mitigated by using thin solder thickness.
+
+In addition, the coefficient for solder thickness indicates using thin solder thickness is associated with an increase in number of skips compared to using thick solder thickness. However, the interaction effect suggest the negative impact of using thin solder thickness of the number of skipsis offset to some extent when combined with a large opening size. 
+
+Because of this, the data suggest the combination of a large opening with a thin solder thickness would offer the potential to minimize the number of skips in the manufacturing process. This recommendation is supported by the interaction effect between opening size and solder thickness, which suggests the negative effects of a large opening size and thin solder thickness on the number of ski8ps can be mitigated when combined.
+
+
